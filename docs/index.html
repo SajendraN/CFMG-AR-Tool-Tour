@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Makerspace Grand Opening AR Tool Tour</title>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; color: #f8fafc; }
+
+    /* Top HUD */
+    #hud {
+      position: fixed; top: 12px; left: 12px; right: 12px; z-index: 10;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      background: rgba(15, 23, 42, 0.9); padding: 10px 14px;
+      border-radius: 14px; backdrop-filter: blur(8px);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    #hud-title { font-weight: 800; font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; color: #94a3b8; }
+    #status { font-size: 14px; color: #38bdf8; font-weight: 700; margin-top: 2px; }
+    #passport-btn {
+      font-size: 15px; font-weight: 800; background: #2563eb; color: #fff;
+      border: none; padding: 8px 12px; border-radius: 10px; cursor: pointer;
+      white-space: nowrap;
+    }
+
+    /* Bottom Scan / Collect Action Button */
+    #prompt {
+      position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 10;
+      background: rgba(15, 23, 42, 0.92); color: #f8fafc;
+      border: 2px solid rgba(148, 163, 184, 0.25);
+      padding: 13px 22px; border-radius: 999px; font-size: 15px; font-weight: 700;
+      white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+      max-width: 92vw; overflow: hidden; text-overflow: ellipsis;
+    }
+    #prompt.ready {
+      background: #2563eb; border-color: #93c5fd; cursor: pointer;
+      animation: pulse 1.6s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: translateX(-50%) scale(1); }
+      50% { transform: translateX(-50%) scale(1.04); }
+    }
+
+    /* Modals (Station Info Card & Tour Passport Checklist) */
+    .modal-backdrop {
+      display: none; position: fixed; inset: 0; z-index: 25;
+      background: rgba(9, 14, 26, 0.92); backdrop-filter: blur(8px);
+      justify-content: center; align-items: center; padding: 20px;
+    }
+    .modal-backdrop.show { display: flex; }
+
+    .card {
+      background: #1e293b; border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 20px; padding: 24px; width: 100%; max-width: 420px;
+      max-height: 85vh; overflow-y: auto; text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+    .station-pill {
+      display: inline-block; background: rgba(56, 189, 248, 0.15); color: #38bdf8;
+      font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+      padding: 4px 10px; border-radius: 999px; margin-bottom: 10px;
+    }
+    .big-icon { font-size: 56px; margin: 4px 0 8px; }
+    .card h2 { margin: 0 0 4px; font-size: 24px; color: #fff; }
+    .tagline { margin: 0 0 14px; font-size: 14px; font-weight: 700; color: #38bdf8; }
+    .desc {
+      margin: 0 0 20px; font-size: 15px; line-height: 1.55; color: #cbd5e1;
+      text-align: left; background: rgba(15, 23, 42, 0.55); padding: 14px 16px; border-radius: 12px;
+    }
+
+    .btn-primary {
+      width: 100%; padding: 13px 20px; font-size: 16px; font-weight: 800;
+      border: none; border-radius: 12px; background: #22c55e; color: #052e16; cursor: pointer;
+    }
+    .btn-secondary {
+      margin-top: 10px; width: 100%; padding: 10px 16px; font-size: 14px; font-weight: 700;
+      border: none; border-radius: 10px; background: #334155; color: #e2e8f0; cursor: pointer;
+    }
+
+    /* Passport List */
+    .passport-list { text-align: left; margin: 14px 0 18px; display: flex; flex-direction: column; gap: 8px; }
+    .passport-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 10px 12px; border-radius: 12px; background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(148, 163, 184, 0.15); cursor: pointer;
+    }
+    .passport-item.done { border-color: rgba(34, 197, 94, 0.45); background: rgba(34, 197, 94, 0.1); }
+    .passport-item-title { font-weight: 700; font-size: 14px; color: #f8fafc; }
+    .passport-item-sub { font-size: 12px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+
+  <!-- Top HUD -->
+  <div id="hud">
+    <div>
+      <div id="hud-title">Makerspace Tool Tour</div>
+      <div id="status">Scan any station poster...</div>
+    </div>
+    <button id="passport-btn" onclick="openPassport()">0 / 10 📋</button>
+  </div>
+
+  <!-- Bottom Action Button -->
+  <button id="prompt" onclick="handlePromptTap()">Point Camera at a Station Card</button>
+
+  <!-- Station Info Modal (Shown when collecting or tapping a station in Passport) -->
+  <div id="station-modal" class="modal-backdrop">
+    <div class="card">
+      <div id="modal-pill" class="station-pill">Station 1 of 10</div>
+      <div id="modal-icon" class="big-icon">⚡</div>
+      <h2 id="modal-title">Electronics Lab</h2>
+      <div id="modal-tagline" class="tagline">Circuits, Soldering & Microcontrollers</div>
+      <p id="modal-desc" class="desc">Station description goes here.</p>
+      <div id="prize-banner" style="display:none; background: rgba(250, 204, 21, 0.15); border: 1px solid #facc15; color: #fde047; padding: 12px; border-radius: 12px; margin-bottom: 14px; font-weight: 700; font-size: 14px;">
+        🎉 Tour Complete! Show this screen at the welcome desk for your 3D-printed souvenir!
+      </div>
+      <button class="btn-primary" onclick="closeStationModal()">Continue Tour</button>
+      <button class="btn-secondary" onclick="closeStationModal(); openPassport();">View All 10 Stations</button>
+    </div>
+  </div>
+
+  <!-- Tour Passport / Checklist Modal -->
+  <div id="passport-modal" class="modal-backdrop">
+    <div class="card">
+      <div class="station-pill">Digital Tour Passport</div>
+      <h2 id="passport-heading">0 of 10 Stations Found</h2>
+      <p style="color:#94a3b8; font-size:13px; margin:4px 0 0;">Tap any unlocked station to re-read its tool guide.</p>
+      <div id="passport-list" class="passport-list"></div>
+      <button class="btn-primary" onclick="closePassport()">Back to Camera</button>
+      <button class="btn-secondary" onclick="resetQuest()">Reset Tour Progress</button>
+    </div>
+  </div>
+
+  <!-- AR Scene (Entities below are auto-generated from the STATIONS list in <script>) -->
+  <a-scene
+    id="ar-scene"
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true;"
+    color-space="sRGB"
+    renderer="colorManagement: true, physicallyCorrectLights"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false">
+
+    <a-assets id="ar-assets"></a-assets>
+
+    <a-light type="ambient" intensity="1.15"></a-light>
+    <a-light type="directional" position="1 2 2" intensity="1.25"></a-light>
+
+    <a-camera
+      position="0 0 0"
+      look-controls="enabled: false"
+      cursor="fuse: false; rayOrigin: mouse;"
+      raycaster="near: 10; far: 10000; objects: .clickable">
+    </a-camera>
+  </a-scene>
+
+  <script>
+    // =========================================================================
+    // EDIT STATION TITLES, TAGLINES, DESCRIPTIONS, AND MODELS HERE!
+    // Make sure the order matches the order you upload images into targets.mind.
+    // =========================================================================
+    const STATIONS = [
+      {
+        title: "Electronics Lab",
+        tagline: "Circuits, Soldering & Microcontrollers",
+        description: "Build custom circuits, solder components, and program Arduino, ESP32, and Raspberry Pi boards using our benchtop power supplies, oscilloscopes, and hot-air rework stations.",
+        badge: "⚡",
+        model: "./station0_electronics_lab.glb"
+      },
+      {
+        title: "Combat Robot Arena",
+        tagline: "Design, Wire & Battle 1lb–3lb Bots",
+        description: "Build, test-drive and battle PLANT class combat robots inside our polycarbonate safety arena, and learn brushless motor wiring, LiPo battery safety, and armor fabrication.",
+        badge: "🤖",
+        model: "./station1_combat_robot.glb"
+      },
+      {
+        title: "Bambu FDM 3D Printers",
+        tagline: "High-Speed Multi-Color Filament Printing",
+        description: "Turn 3D CAD models into functional plastic prototypes in minutes using high-speed Bambu Lab printers capable of multi-material and multi-color PLA, PETG, and carbon-fiber prints.",
+        badge: "🖨️",
+        model: "./station2_bambu_fdm.glb"
+      },
+      {
+        title: "Resin 3D Printers",
+        tagline: "Ultra-Fine Detail UV Stereolithography",
+        description: "Cure liquid photopolymer resin layer-by-layer with UV light to create miniatures, jewelry masters, and smooth engineering parts with microscopic surface detail.",
+        badge: "💎",
+        model: "./station3_resin_printer.glb"
+      },
+      {
+        title: "Woodworking Shop",
+        tagline: "Saws, Routers, Planers & Fine Joinery",
+        description: "Shape furniture, signs, and structural frames from hardwood and sheet goods using our SawStop table saw, miter saw, bandsaw, drill presses, and dust-collected sanding benches.",
+        badge: "🪚",
+        model: "./station4_wood_shop.glb"
+      },
+      {
+        title: "Arts & Crafts Studio",
+        tagline: "Vinyl Cutting, Painting & Mixed Media",
+        description: "Create custom stickers, heat-transfer apparel, paper sculptures, and hand-painted finishes using Cricut/silhouette vinyl plotters, airbrushes, and open studio worktables.",
+        badge: "🎨",
+        model: "./station5_arts_crafts.glb"
+      },
+      {
+        title: "Fiber Arts Studio",
+        tagline: "Sewing, Embroidery & Textile Fabrication",
+        description: "Stitch custom bags, cosplay gear, and patches on heavy-duty sewing machines, sergers, and computerized multi-needle embroidery machines.",
+        badge: "🧵",
+        model: "./station6_fiber_arts.glb"
+      },
+      {
+        title: "CO2 Laser Cutter",
+        tagline: "Precision Cutting & Engraving on Wood & Acrylic",
+        description: "Use a high-powered infrared CO2 laser beam to slice intricate interlocking parts out of plywood and cast acrylic, or engrave crisp artwork onto leather, glass, and stone.",
+        badge: "🔥",
+        model: "./station7_co2_laser.glb"
+      },
+      {
+        title: "Fiber Laser Engraver",
+        tagline: "High-Speed Metal Marking & Deep Engraving",
+        description: "Unlike a CO2 laser, our galvo fiber laser marks bare metals—engraving serial numbers, artwork, and high-contrast designs onto stainless steel, aluminum, brass, and titanium in seconds.",
+        badge: "🔦",
+        model: "./station8_fiber_laser.glb"
+      },
+      {
+        title: "CNC Milling Machine",
+        tagline: "Computer-Controlled Subtractive Machining",
+        description: "Carve precision 3D parts out of solid aluminum, brass, hardwoods, and plastics using computer-guided spinning carbide end-mills.",
+        badge: "⚙️",
+        model: "./station9_cnc_mill.glb"
+      }
+    ];
+    // =========================================================================
+
+    const STORAGE_KEY = "makerspace_tour_v1";
+    let collected = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    let activeTarget = null;
+
+    const sceneEl = document.getElementById("ar-scene");
+    const assetsEl = document.getElementById("ar-assets");
+    const statusEl = document.getElementById("status");
+    const passportBtn = document.getElementById("passport-btn");
+    const promptEl = document.getElementById("prompt");
+    const stationModal = document.getElementById("station-modal");
+    const passportModal = document.getElementById("passport-modal");
+
+    // Dynamically build A-Frame assets and targets from STATIONS array
+    STATIONS.forEach((st, idx) => {
+      const asset = document.createElement("a-asset-item");
+      asset.id = `model-${idx}`;
+      asset.setAttribute("src", st.model);
+      assetsEl.appendChild(asset);
+
+      const target = document.createElement("a-entity");
+      target.id = `target-${idx}`;
+      target.setAttribute("mindar-image-target", `targetIndex: ${idx}`);
+
+      const gltf = document.createElement("a-gltf-model");
+      gltf.id = `artifact-${idx}`;
+      gltf.setAttribute("src", `#model-${idx}`);
+      gltf.setAttribute("scale", "0.85 0.85 0.85");
+      gltf.setAttribute("position", "0 0 0.25");
+      gltf.setAttribute("animation", "property: rotation; to: 0 360 0; loop: true; dur: 5500; easing: linear");
+
+      const hitbox = document.createElement("a-sphere");
+      hitbox.id = `hitbox-${idx}`;
+      hitbox.classList.add("clickable");
+      hitbox.setAttribute("radius", "0.52");
+      hitbox.setAttribute("position", "0 0 0.25");
+      hitbox.setAttribute("material", "opacity: 0; transparent: true");
+
+      target.appendChild(gltf);
+      target.appendChild(hitbox);
+      sceneEl.appendChild(target);
+    });
+
+    function updateHUD() {
+      const count = Object.keys(collected).length;
+      passportBtn.textContent = `${count} / ${STATIONS.length} 📋`;
+    }
+
+    function showStationInfo(idx) {
+      const st = STATIONS[idx];
+      const count = Object.keys(collected).length;
+      document.getElementById("modal-pill").textContent = `Station ${idx + 1} of ${STATIONS.length}`;
+      document.getElementById("modal-icon").textContent = st.badge;
+      document.getElementById("modal-title").textContent = st.title;
+      document.getElementById("modal-tagline").textContent = st.tagline;
+      document.getElementById("modal-desc").textContent = st.description;
+      document.getElementById("prize-banner").style.display = (count >= STATIONS.length) ? "block" : "none";
+      stationModal.classList.add("show");
+    }
+
+    function collectStation(idx) {
+      const id = String(idx);
+      const isNew = !collected[id];
+      collected[id] = true;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(collected));
+
+      if (isNew) {
+        const art = document.getElementById(`artifact-${idx}`);
+        if (art) {
+          art.setAttribute("animation__pop", "property: scale; from: 1.25 1.25 1.25; to: 0.85 0.85 0.85; dur: 400");
+        }
+      }
+      promptEl.textContent = `Tap to Read: ${STATIONS[idx].title}`;
+      updateHUD();
+      showStationInfo(idx);
+    }
+
+    // Wire up tracking & tap events
+    STATIONS.forEach((st, idx) => {
+      const tEl = document.getElementById(`target-${idx}`);
+      const hEl = document.getElementById(`hitbox-${idx}`);
+
+      tEl.addEventListener("targetFound", () => {
+        activeTarget = idx;
+        statusEl.textContent = `Found: ${st.title}`;
+        promptEl.classList.add("ready");
+        promptEl.textContent = collected[String(idx)]
+          ? `View Guide: ${st.title}`
+          : `Tap to Collect: ${st.title}`;
+      });
+
+      tEl.addEventListener("targetLost", () => {
+        if (activeTarget === idx) {
+          activeTarget = null;
+          statusEl.textContent = "Scan any station poster...";
+          promptEl.classList.remove("ready");
+          promptEl.textContent = "Point Camera at a Station Card";
+        }
+      });
+
+      hEl.addEventListener("click", () => collectStation(idx));
+    });
+
+    function handlePromptTap() {
+      if (activeTarget !== null) collectStation(activeTarget);
+    }
+
+    function closeStationModal() {
+      stationModal.classList.remove("show");
+    }
+
+    function openPassport() {
+      const count = Object.keys(collected).length;
+      document.getElementById("passport-heading").textContent = `${count} of ${STATIONS.length} Stations Found`;
+      const listEl = document.getElementById("passport-list");
+      listEl.innerHTML = "";
+
+      STATIONS.forEach((st, idx) => {
+        const isDone = !!collected[String(idx)];
+        const row = document.createElement("div");
+        row.className = "passport-item" + (isDone ? " done" : "");
+        row.innerHTML = `
+          <div>
+            <div class="passport-item-title">${st.badge} ${idx + 1}. ${st.title}</div>
+            <div class="passport-item-sub">${isDone ? st.tagline : "Not scanned yet — find this poster!"}</div>
+          </div>
+          <div style="font-size:18px;">${isDone ? "✅" : "🔒"}</div>
+        `;
+        if (isDone) {
+          row.onclick = () => {
+            closePassport();
+            showStationInfo(idx);
+          };
+        }
+        listEl.appendChild(row);
+      });
+
+      passportModal.classList.add("show");
+    }
+
+    function closePassport() {
+      passportModal.classList.remove("show");
+    }
+
+    function resetQuest() {
+      collected = {};
+      localStorage.removeItem(STORAGE_KEY);
+      updateHUD();
+      openPassport();
+    }
+
+    updateHUD();
+  </script>
+</body>
+</html>
